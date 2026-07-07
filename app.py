@@ -1,5 +1,5 @@
 import os
-from dash import html, dcc, dash_table, Output, Input, State, callback, Dash, callback_context, no_update
+from dash import html, dcc, dash_table, Output, Input, State, callback, Dash, callback_context, no_update, ALL
 import dash_bootstrap_components as dbc
 import pandas as pd
 from flask import request
@@ -427,17 +427,45 @@ def layout_responder_fornecedor(token):
 
     ja_respondida = cotacao['status'] == 'respondida'
 
-    linhas_tabela = [
-        {
-            "id": item['id'],
-            "grupo": item['grupo'] or "-",
-            "item": item['item'],
-            "volume": item['volume'] or "-",
-            "qtd": item['qtd'],
-            "preco_unitario": item['preco_unitario'],
-        }
-        for item in cotacao['itens']
-    ]
+    # --- cabeçalho da "tabela" (grid manual, não é dash_table) ---
+    cabecalho = dbc.Row([
+        dbc.Col("Grupo", width=3), dbc.Col("Item", width=3), dbc.Col("Volume", width=2),
+        dbc.Col("Qtd", width=1), dbc.Col("Preço unitário (R$)", width=3),
+    ], className="py-2", style={
+        'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px',
+        'borderBottom': f'1px solid {COR_BORDA}',
+    })
+
+    # --- uma linha por item -- o preço é um dcc.Input próprio, com id
+    # {'type': 'preco-input', 'index': <id do item>}. Diferente da dash_table
+    # editável, o valor de um dcc.Input fica sempre disponível de imediato
+    # (sem depender de perder o foco), então não tem risco de o clique em
+    # "Enviar" chegar antes do valor digitado ser registrado.
+    linhas = []
+    for item in cotacao['itens']:
+        if ja_respondida:
+            campo_preco = html.Div(
+                f"R$ {parse_preco(item['preco_unitario']):,.2f}" if item['preco_unitario'] is not None else "-",
+                style={'color': COR_TEXTO}
+            )
+        else:
+            campo_preco = dcc.Input(
+                id={'type': 'preco-input', 'index': item['id']},
+                type="text",
+                placeholder="Ex: 12,50",
+                value=(str(item['preco_unitario']) if item['preco_unitario'] is not None else None),
+                style={'width': '100%', 'height': '36px', 'borderRadius': '6px'}
+            )
+
+        linhas.append(
+            dbc.Row([
+                dbc.Col(item['grupo'] or "-", width=3, style={'color': COR_TEXTO}),
+                dbc.Col(item['item'], width=3, style={'color': COR_TEXTO}),
+                dbc.Col(item['volume'] or "-", width=2, style={'color': COR_TEXTO}),
+                dbc.Col(item['qtd'], width=1, style={'color': COR_TEXTO}),
+                dbc.Col(campo_preco, width=3),
+            ], className="py-2 align-items-center", style={'borderBottom': f'1px solid {COR_BORDA}'})
+        )
 
     return dbc.Container([
 
@@ -461,34 +489,9 @@ def layout_responder_fornecedor(token):
                     "Esta cotação já foi respondida. Os preços enviados estão abaixo.",
                     style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}
                 ),
-                dash_table.DataTable(
-                    id='tabela-precos',
-                    columns=[
-                        {"name": "Grupo", "id": "grupo", "editable": False},
-                        {"name": "Item", "id": "item", "editable": False},
-                        {"name": "Volume", "id": "volume", "editable": False},
-                        {"name": "Qtd", "id": "qtd", "editable": False},
-                        {"name": "Preço unitário (R$)", "id": "preco_unitario", "editable": not ja_respondida,
-                         "type": "text"},
-                    ],
-                    data=linhas_tabela,
-                    editable=not ja_respondida,
-                    style_header={
-                        'backgroundColor': COR_CARD_2, 'color': COR_MUTED, 'fontWeight': '600',
-                        'textTransform': 'uppercase', 'fontSize': '12px', 'border': 'none',
-                        'borderBottom': f'1px solid {COR_BORDA}',
-                    },
-                    style_cell={
-                        'backgroundColor': COR_CARD, 'color': COR_TEXTO, 'textAlign': 'left',
-                        'padding': '10px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}',
-                        'fontFamily': 'Inter, sans-serif',
-                    },
-                    style_data_conditional=[
-                        {'if': {'column_id': 'preco_unitario'}, 'backgroundColor': COR_CARD_2,
-                         'border': f'1px solid {COR_ACCENT_2}'},
-                    ],
-                    style_as_list_view=True,
-                ),
+
+                cabecalho,
+                html.Div(linhas),
 
                 html.Div([
                     dbc.Button([html.I(className="bi bi-check2-circle me-2"), "Enviar preços"],
@@ -788,19 +791,22 @@ def atualizar_lista_cotacoes(pathname, n_clicks, busca, status, data_inicio, dat
     Output('mensagem-envio', 'children'),
     Output('Btn-enviar-precos', 'disabled'),
     Input('Btn-enviar-precos', 'n_clicks'),
-    State('tabela-precos', 'data'),
+    State({'type': 'preco-input', 'index': ALL}, 'value'),
+    State({'type': 'preco-input', 'index': ALL}, 'id'),
     State('token-cotacao', 'data'),
     prevent_initial_call=True
 )
-def enviar_precos(n_clicks, linhas, token):
-    # Converte cada preço digitado (aceita vírgula ou ponto) antes de salvar
+def enviar_precos(n_clicks, valores, ids, token):
+    # Cada dcc.Input tem seu próprio id ({'type': 'preco-input', 'index': <id do item>}),
+    # então dá pra casar valor <-> item diretamente pela ordem que vieram (ids e
+    # valores sempre chegam na mesma ordem um do outro).
     precos = []
     invalidos = 0
-    for linha in linhas:
-        preco = parse_preco(linha.get('preco_unitario'))
+    for id_componente, valor in zip(ids, valores):
+        preco = parse_preco(valor)
         if preco is None:
             invalidos += 1
-        precos.append({'id': linha['id'], 'preco_unitario': preco})
+        precos.append({'id': id_componente['index'], 'preco_unitario': preco})
 
     if invalidos:
         return dbc.Alert(
