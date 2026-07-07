@@ -469,7 +469,7 @@ def layout_responder_fornecedor(token):
                         {"name": "Volume", "id": "volume", "editable": False},
                         {"name": "Qtd", "id": "qtd", "editable": False},
                         {"name": "Preço unitário (R$)", "id": "preco_unitario", "editable": not ja_respondida,
-                         "type": "numeric"},
+                         "type": "text"},
                     ],
                     data=linhas_tabela,
                     editable=not ja_respondida,
@@ -819,4 +819,4 @@ if __name__ == '__main__':
     # host='0.0.0.0' é necessário pro Render conseguir enxergar o servidor
     # (diferente do 'alterdatasrv' usado antes, que só existia na rede interna).
     porta = int(os.environ.get("PORT", 8050))
-    app.run(host='alterdatasrv', port=porta, debug=False)
+    app.run(host='0.0.0.0', port=porta, debug=False)
