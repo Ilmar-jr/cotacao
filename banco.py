@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# Variable de ambiente configurada localmente ou no Render
+# O Render injeta o DATABASE_URL automaticamente. Localmente, pegará o fallback do localhost.
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nome_banco")
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
@@ -52,7 +52,7 @@ def criar_banco():
         """)
 
 def criar_cotacao(fornecedor, itens):
-    """Salva uma nova cotação (iniciando na rodada 1)."""
+    """Salva uma nova cotação vinculando os itens à rodada inicial 1."""
     token = uuid.uuid4().hex
     agora = datetime.now(FUSO_BR)
 
@@ -73,16 +73,15 @@ def criar_cotacao(fornecedor, itens):
     return cotacao_id, token
 
 def buscar_cotacao_para_responder(token):
-    """Retorna os metadados da cotação e APENAS os itens pertencentes à rodada_atual ativa."""
+    """Retorna a cotação e APENAS os itens que pertencem à rodada ativa no momento."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes WHERE token = %s", (token,))
         cotacao = cur.fetchone()
         if cotacao is None:
             return None
 
-        # Filtra estritamente pela rodada atual no momento da resposta do fornecedor
         cur.execute(
-            "SELECT * FROM itens_cotacao WHERE cotacao_id = %s AND rodada = %s", 
+            "SELECT * FROM itens_cotacao WHERE cotacao_id = %s AND rodada = %s ORDER BY id ASC", 
             (cotacao['id'], cotacao['rodada_atual'])
         )
         itens = cur.fetchall()
@@ -98,14 +97,13 @@ def buscar_cotacao_para_responder(token):
         }
 
 def buscar_todas_rodadas_id(cotacao_id):
-    """Retorna o histórico completo (todas as rodadas ordenadas) para o painel de resultados."""
+    """Retorna a cotação e o histórico completo de todas as rodadas já realizadas."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes WHERE id = %s", (cotacao_id,))
         cotacao = cur.fetchone()
         if cotacao is None:
             return None
 
-        # Traz tudo ordenado da rodada mais recente para a mais antiga
         cur.execute("SELECT * FROM itens_cotacao WHERE cotacao_id = %s ORDER BY rodada DESC, id ASC", (cotacao['id'],))
         itens = cur.fetchall()
         
@@ -132,7 +130,7 @@ def salvar_precos(token, precos, rodada_atual):
         cur.execute("UPDATE cotacoes SET status = 'respondida' WHERE token = %s", (token,))
 
 def abrir_nova_rodada_negociacao(cotacao_id):
-    """Abre uma rodada evolutiva, duplicando a lista de itens com valor nulo."""
+    """Duplica a lista de itens incrementando a rodada evolutiva para negociação."""
     with get_cursor() as cur:
         cur.execute("""
             UPDATE cotacoes 
@@ -150,7 +148,7 @@ def abrir_nova_rodada_negociacao(cotacao_id):
         """, (nova_rodada, cotacao_id, nova_rodada - 1))
 
 def listar_cotacoes():
-    """Lista o cabeçalho de todas as cotações geradas."""
+    """Lista todas as cotações geradas ordenando pelo ID decrescente."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes ORDER BY id DESC")
         linhas = cur.fetchall()
