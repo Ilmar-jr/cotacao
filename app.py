@@ -7,6 +7,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import banco as bd
 
+# Executa a criação das tabelas se elas não existirem no Postgres local/Supabase
 bd.criar_banco()
 
 # ============================================================
@@ -21,6 +22,7 @@ app = Dash(
 )
 server = app.server
 
+# Necessário para o Render gerenciar HTTPS e Proxy de forma nativa
 server.wsgi_app = ProxyFix(server.wsgi_app, x_proto=1, x_host=1)
 
 COR_BG = "#0e1218"
@@ -34,8 +36,8 @@ COR_ACCENT_2 = "#3b82c4"
 COR_PERIGO = "#e5484d"
 COR_SUCESSO = "#3ba55d"
 
-# Defina a senha interna aqui
-SENHA_INTERNA = "admin123"
+# Para produção no Render, utilize variáveis de ambiente. Mantido o fallback para teste local.
+SENHA_INTERNA = os.environ.get("SENHA_INTERNA", "admin123")
 
 INDEX_STRING = '''
 <!DOCTYPE html>
@@ -72,13 +74,11 @@ fn = fornecedor['Nome do PN'].dropna().unique()
 grupo = produtos['Nome do grupo'].dropna().unique()
 todos_produtos = produtos['Descrição do item'].dropna().unique()
 
-
 def campo(label, componente, largura):
     return dbc.Col([
         html.Div(label, className="rotulo-campo"),
         componente
     ], width=largura)
-
 
 def parse_preco(valor):
     if valor is None or valor == "":
@@ -94,7 +94,6 @@ def parse_preco(valor):
         return float(texto)
     except ValueError:
         return None
-
 
 # ============================================================
 # LAYOUT: TELA DE LOGIN INTERNO
@@ -118,7 +117,6 @@ def layout_login():
             ], width=4)
         ], justify="center", align="center", style={'minHeight': '80vh'})
     ], fluid=True)
-
 
 # ============================================================
 # LAYOUT 1: TELA INTERNA -- montar a cotação
@@ -193,7 +191,7 @@ def layout_cotacao_interna():
             ])
         ], className="card-cotacao"),
 
-        html.Div([dbc.Row([dbc.Col(html.Span("COTAÇÕES CRIADOS"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
+        html.Div([dbc.Row([dbc.Col(html.Span("COTAÇÕES CRIADAS"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
 
         dbc.Card([
             dbc.CardBody([
@@ -207,7 +205,6 @@ def layout_cotacao_interna():
             ])
         ], className="card-cotacao"),
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
-
 
 def montar_tabela_cotacoes(busca=None, status=None, data_inicio=None, data_fim=None):
     cotacoes = bd.listar_cotacoes()
@@ -255,17 +252,25 @@ def montar_tabela_cotacoes(busca=None, status=None, data_inicio=None, data_fim=N
         )
     ])
 
-
 # ============================================================
-# LAYOUT 2: TELA PÚBLICA -- fornecedor preenche o preço
+# LAYOUT 2: TELA PÚBLICA -- fornecedor preenche o preço (Rodadas)
 # ============================================================
 def layout_responder_fornecedor(token):
-    cotacao = bd.buscar_cotacao_por_token(token)
+    # Sincronizado para buscar apenas os itens da rodada atual ativa
+    cotacao = bd.buscar_cotacao_para_responder(token)
     if cotacao is None:
         return dbc.Container([html.Div([html.I(className="bi bi-exclamation-triangle me-2", style={'color': COR_PERIGO}), html.Span("Link inválido ou cotação não encontrada.", style={'color': COR_TEXTO, 'fontSize': '18px'})], style={'marginTop': '60px'})], style={'paddingLeft': '80px', 'paddingRight': '80px'}, fluid=True)
 
+    rodada = cotacao['rodada_atual']
     ja_respondida = cotacao['status'] == 'respondida'
-    cabecalho = dbc.Row([dbc.Col("Grupo", width=3), dbc.Col("Item", width=3), dbc.Col("Volume", width=2), dbc.Col("Qtd", width=1), dbc.Col("Preço unitário (R$)", width=3)], className="py-2", style={'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'borderBottom': f'1px solid {COR_BORDA}'})
+    
+    cabecalho = dbc.Row([
+        dbc.Col("Grupo", width=3), 
+        dbc.Col("Item", width=3), 
+        dbc.Col("Volume", width=2), 
+        dbc.Col("Qtd", width=1), 
+        dbc.Col(f"Preço Unitário ({rodada}ª Rodada)", width=3)
+    ], className="py-2", style={'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'borderBottom': f'1px solid {COR_BORDA}'})
 
     linhas = []
     for item in cotacao['itens']:
@@ -273,79 +278,128 @@ def layout_responder_fornecedor(token):
             campo_preco = html.Div(f"R$ {parse_preco(item['preco_unitario']):,.2f}" if item['preco_unitario'] is not None else "-", style={'color': COR_TEXTO})
         else:
             campo_preco = dcc.Input(id={'type': 'preco-input', 'index': item['id']}, type="text", placeholder="Ex: 12,50", value=(str(item['preco_unitario']) if item['preco_unitario'] is not None else None), style={'width': '100%', 'height': '36px', 'borderRadius': '6px'})
+        
         linhas.append(dbc.Row([dbc.Col(item['grupo'] or "-", width=3, style={'color': COR_TEXTO}), dbc.Col(item['item'], width=3, style={'color': COR_TEXTO}), dbc.Col(item['volume'] or "-", width=2, style={'color': COR_TEXTO}), dbc.Col(item['qtd'], width=1, style={'color': COR_TEXTO}), dbc.Col(campo_preco, width=3)], className="py-2 align-items-center", style={'borderBottom': f'1px solid {COR_BORDA}'}))
 
     return dbc.Container([
         html.Div([
-            html.Div([html.I(className="bi bi-send-check-fill me-2", style={'color': COR_ACCENT_2}), html.Span("PREENCHIMENTO DE COTAÇÃO", className="titulo-cotacao", style={'fontSize': '26px', 'fontWeight': '700', 'color': COR_TEXTO})]),
+            html.Div([html.I(className="bi bi-send-check-fill me-2", style={'color': COR_ACCENT_2}), html.Span(f"NEGOCIAÇÃO ONLINE - {rodada}ª RODADA", className="titulo-cotacao", style={'fontSize': '26px', 'fontWeight': '700', 'color': COR_TEXTO})]),
             html.Div(f"Fornecedor: {cotacao['fornecedor'] or '-'}   •   Cotação nº {cotacao['id']}", style={'color': COR_MUTED, 'fontSize': '14px', 'marginTop': '4px'}),
         ], style={'padding': '18px 4px 8px 4px'}),
         dcc.Store(id='token-cotacao', data=token),
+        dcc.Store(id='rodada-atual-fornecedor', data=rodada),
         dbc.Card([
             dbc.CardBody([
-                html.Div("Preencha o preço unitário de cada item abaixo e clique em Enviar." if not ja_respondida else "Esta cotação já foi respondida. Os preços enviados estão abaixo.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
+                html.Div("Insira os preços para esta fase da negociação e clique em Enviar." if not ja_respondida else f"Os preços da {rodada}ª rodada já foram enviados e estão em análise.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
                 cabecalho, html.Div(linhas),
                 html.Div([
-                    dbc.Button([html.I(className="bi bi-check2-circle me-2"), "Enviar preços"], id='Btn-enviar-precos', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700', 'marginTop': '18px'}, disabled=ja_respondida),
+                    dbc.Button([html.I(className="bi bi-check2-circle me-2"), "Enviar preços da Rodada"], id='Btn-enviar-precos', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700', 'marginTop': '18px'}, disabled=ja_respondida),
                     html.Div(id='mensagem-envio', style={'marginTop': '14px'}),
                 ]),
             ])
         ], className="card-cotacao"),
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
-
 # ============================================================
-# LAYOUT 3: TELA INTERNA -- resultado da cotação
+# LAYOUT 3: TELA INTERNA -- histórico evolutivo de rodadas
 # ============================================================
 def layout_resultado_cotacao(cotacao_id):
     try:
-        cotacao = bd.buscar_cotacao_por_id(int(cotacao_id))
+        cotacao_completa = bd.buscar_todas_rodadas_id(int(cotacao_id))
     except (TypeError, ValueError):
-        cotacao = None
+        cotacao_completa = None
 
-    if cotacao is None:
+    if cotacao_completa is None:
         return dbc.Container([html.Div([html.I(className="bi bi-exclamation-triangle me-2", style={'color': COR_PERIGO}), html.Span("Cotação não encontrada.", style={'color': COR_TEXTO, 'fontSize': '18px'})], style={'marginTop': '60px', 'marginBottom': '20px'}), dcc.Link("← Voltar", href="/", style={'color': COR_ACCENT_2})], style={'paddingLeft': '80px', 'paddingRight': '80px'}, fluid=True)
 
-    respondida = cotacao['status'] == 'respondida'
+    respondida = cotacao_completa['status'] == 'respondida'
     linhas_tabela = []
-    total_geral = 0
-    for item in cotacao['itens']:
+    rodadas_disponiveis = set()
+    
+    for item in cotacao_completa['itens']:
         preco = parse_preco(item['preco_unitario'])
         qtd = item['qtd'] or 0
-        subtotal = (preco * qtd) if preco is not None else None
-        if subtotal is not None: total_geral += subtotal
-        linhas_tabela.append({"grupo": item['grupo'] or "-", "item": item['item'], "volume": item['volume'] or "-", "qtd": qtd, "preco_unitario": f"R$ {preco:,.2f}" if preco is not None else "Aguardando", "subtotal": f"R$ {subtotal:,.2f}" if subtotal is not None else "-"})
+        subtotal = (preco * qtd) if preco is not None else 0
+        rodadas_disponiveis.add(item['rodada'])
+        
+        linhas_tabela.append({
+            "rodada": f"{item['rodada']}ª Rodada",
+            "grupo": item['grupo'] or "-",
+            "item": item['item'],
+            "volume": item['volume'] or "-",
+            "qtd": qtd,
+            "preco_unitario": f"R$ {preco:,.2f}" if preco is not None else "Aguardando",
+            "subtotal": f"R$ {subtotal:,.2f}" if preco is not None else "-"
+        })
+
+    opcoes_rodadas = [{'label': f'{r}ª Rodada', 'value': r} for r in sorted(rodadas_disponiveis)]
 
     return dbc.Container([
+        dcc.Download(id="download-excel"),
+
         html.Div([
             dcc.Link("← Voltar para a tela principal", href="/", style={'color': COR_MUTED, 'fontSize': '13px'}),
-            html.Div([html.I(className="bi bi-bar-chart-line-fill me-2", style={'color': COR_ACCENT_2}), html.Span(f"RESULTADO DA COTAÇÃO Nº {cotacao['id']}", className="titulo-cotacao", style={'fontSize': '26px', 'fontWeight': '700', 'color': COR_TEXTO})], style={'marginTop': '10px'}),
-            html.Div([html.Span(f"Fornecedor: {cotacao['fornecedor'] or '-'}   •   Criada em {cotacao['data_criacao']}   •   ", style={'color': COR_MUTED, 'fontSize': '14px'}), dbc.Badge("Respondida" if respondida else "Aguardando fornecedor", color="success" if respondida else "warning")], style={'marginTop': '4px'}),
+            html.Div([html.I(className="bi bi-bar-chart-line-fill me-2", style={'color': COR_ACCENT_2}), html.Span(f"HISTÓRICO DE NEGOCIAÇÃO - COTAÇÃO Nº {cotacao_completa['id']}", className="titulo-cotacao", style={'fontSize': '26px', 'fontWeight': '700', 'color': COR_TEXTO})], style={'marginTop': '10px'}),
+            html.Div([html.Span(f"Fornecedor: {cotacao_completa['fornecedor'] or '-'}   •   Criada em {cotacao_completa['data_criacao']}   •   ", style={'color': COR_MUTED, 'fontSize': '14px'}), dbc.Badge(cotacao_completa['status'].upper(), color="success" if respondida else "warning")], style={'marginTop': '4px'}),
         ], style={'padding': '18px 4px 8px 4px'}),
+        
+        # CARD DE GERENCIAMENTO (Nova rodada à esquerda + Download Excel à direita)
         dbc.Card([
             dbc.CardBody([
+                dbc.Row([
+                    # Lado Esquerdo: Reabrir cotação
+                    dbc.Col([
+                        html.Div("Negociar valores:", style={'color': COR_TEXTO, 'fontSize': '14px', 'marginBottom': '10px', 'fontWeight': '600'}),
+                        dbc.Button([html.I(className="bi bi-arrow-repeat me-2"), "Reabrir Cotação (Solicitar Nova Rodada de Preços)"], id='btn-nova-rodada', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700', 'width': '100%'}, size="sm"),
+                        html.Div(id='feedback-nova-rodada', style={'marginTop': '10px'})
+                    ], width=6, style={'borderRight': f'1px solid {COR_BORDA}'}),
+                    
+                    # Lado Direito: Exportar planilha
+                    dbc.Col([
+                        html.Div("Exportar para Excel:", style={'color': COR_TEXTO, 'fontSize': '14px', 'marginBottom': '10px', 'fontWeight': '600'}),
+                        dbc.Row([
+                            dbc.Col(dcc.Dropdown(id='dropdown-rodada-excel', options=opcoes_rodadas, placeholder="Escolha a rodada...", style={'color': '#000'}), width=7),
+                            dbc.Col(dbc.Button([html.I(className="bi bi-file-earmark-excel me-2"), "Baixar"], id='btn-baixar-excel', n_clicks=0, style={'backgroundColor': COR_SUCESSO, 'border': 'none', 'fontWeight': '700', 'width': '100%'}, size="sm"), width=5)
+                        ]),
+                        html.Div(id='feedback-excel', style={'marginTop': '10px'})
+                    ], width=6, className="ps-4")
+                ])
+            ])
+        ], className="card-cotacao mb-4", style={'border': f'1px solid {COR_BORDA}'}),
+
+        # Histórico Completo de Itens
+        dbc.Card([
+            dbc.CardBody([
+                html.Div("Histórico evolutivo de preços (As rodadas mais recentes aparecem no topo):", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
                 dash_table.DataTable(
-                    columns=[{"name": "Grupo", "id": "grupo"}, {"name": "Item", "id": "item"}, {"name": "Volume", "id": "volume"}, {"name": "Qtd", "id": "qtd"}, {"name": "Preço unitário", "id": "preco_unitario"}, {"name": "Subtotal", "id": "subtotal"}],
+                    columns=[
+                        {"name": "Fase / Rodada", "id": "rodada"},
+                        {"name": "Grupo", "id": "grupo"},
+                        {"name": "Item / Produto", "id": "item"},
+                        {"name": "Volume", "id": "volume"},
+                        {"name": "Qtd", "id": "qtd"},
+                        {"name": "Preço Ofertado", "id": "preco_unitario"},
+                        {"name": "Subtotal da Rodada", "id": "subtotal"},
+                    ],
                     data=linhas_tabela,
                     style_header={'backgroundColor': COR_CARD_2, 'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}'},
                     style_cell={'backgroundColor': COR_CARD, 'color': COR_TEXTO, 'textAlign': 'left', 'padding': '10px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}', 'fontFamily': 'Inter, sans-serif'},
+                    style_data_conditional=[{'if': {'column_id': 'rodada'}, 'fontWeight': 'bold', 'color': COR_ACCENT_2}],
+                    page_size=30,
                     style_as_list_view=True,
                 ),
-                html.Div([html.Span("TOTAL GERAL: ", style={'color': COR_MUTED, 'fontSize': '14px', 'fontWeight': '600'}), html.Span(f"R$ {total_geral:,.2f}" if respondida else "aguardando o fornecedor preencher todos os itens", style={'color': COR_ACCENT, 'fontSize': '20px', 'fontWeight': '700'})], style={'marginTop': '18px', 'textAlign': 'right'}),
             ])
         ], className="card-cotacao"),
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
-
 
 # ============================================================
 # LAYOUT RAIZ + ROTEAMENTO COM TRAVA DE SEGURANÇA
 # ============================================================
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
-    dcc.Store(id='sessao-interna', storage_type='session', data=False),  # Guarda se o login interno foi feito
+    dcc.Store(id='sessao-interna', storage_type='session', data=False),
     html.Div(id='conteudo-pagina')
 ])
-
 
 @callback(
     Output('conteudo-pagina', 'children'),
@@ -353,22 +407,18 @@ app.layout = html.Div([
     Input('sessao-interna', 'data')
 )
 def rotear_pagina(pathname, logado):
-    # Se a rota for pública para o fornecedor, permite o acesso direto sem checar senha
     if pathname and pathname.startswith('/responder/'):
         token = pathname.replace('/responder/', '').strip('/')
         return layout_responder_fornecedor(token)
 
-    # Se for uma rota interna (/ ou /resultado/ID) e NÃO estiver logado, exibe a tela de login
     if not logado:
         return layout_login()
 
-    # Se estiver logado, libera o acesso às telas internas
     if pathname and pathname.startswith('/resultado/'):
         cotacao_id = pathname.replace('/resultado/', '').strip('/')
         return layout_resultado_cotacao(cotacao_id)
 
     return layout_cotacao_interna()
-
 
 # ============================================================
 # CALLBACK: CONTROLE DE ACESSO (LOGIN)
@@ -384,7 +434,6 @@ def realizar_login(n_clicks, senha_digitada):
     if senha_digitada == SENHA_INTERNA:
         return True, None
     return False, dbc.Alert("Senha incorreta. Tente novamente.", color="danger")
-
 
 # ============================================================
 # OUTROS CALLBACKS ORIGINAIS (MANTIDOS ENCAPSULADOS)
@@ -427,7 +476,6 @@ def gerenciar(grupo_selecionado, salvar, remover, fornecedor_sel, grupo_sel, pro
         return no_update, no_update, no_update, no_update, lista_atual, lista_atual, itens_txt, qtd_txt
     return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
-
 @callback(
     Output('resultado-link', 'children'), Output('lista-store', 'data', allow_duplicate=True), Output('tabela-lista', 'data', allow_duplicate=True),
     Input('Btn-finalizar', 'n_clicks'), State('tab-pn', 'value'), State('lista-store', 'data'),
@@ -448,14 +496,12 @@ def finalizar_cotacao(n_clicks, fornecedor_sel, lista_atual):
     ])
     return resultado, [], []
 
-
 @callback(Output('url', 'pathname'), Input('tabela-cotacoes', 'active_cell'), State('tabela-cotacoes', 'data'), prevent_initial_call=True)
 def ir_para_resultado(celula_ativa, linhas):
     if not celula_ativa or not linhas: return no_update
     if celula_ativa.get('column_id') == 'link': return no_update
-    linha = linhas[celula_ativa['row']]
+    linha = lines = linhas[celula_ativa['row']]
     return f"/resultado/{linha['id']}"
-
 
 @callback(
     Output('lista-cotacoes-criadas', 'children'),
@@ -466,13 +512,19 @@ def atualizar_lista_cotacoes(pathname, n_clicks, busca, status, data_inicio, dat
     if pathname not in (None, '', '/'): return no_update
     return montar_tabela_cotacoes(busca, status, data_inicio, data_fim)
 
-
+# ============================================================
+# CALLBACK: SALVAR PREÇOS DO FORNECEDOR (Sincronizado com Rodada)
+# ============================================================
 @callback(
     Output('mensagem-envio', 'children'), Output('Btn-enviar-precos', 'disabled'),
-    Input('Btn-enviar-precos', 'n_clicks'), State({'type': 'preco-input', 'index': ALL}, 'value'), State({'type': 'preco-input', 'index': ALL}, 'id'), State('token-cotacao', 'data'),
+    Input('Btn-enviar-precos', 'n_clicks'), 
+    State({'type': 'preco-input', 'index': ALL}, 'value'), 
+    State({'type': 'preco-input', 'index': ALL}, 'id'), 
+    State('token-cotacao', 'data'),
+    State('rodada-atual-fornecedor', 'data'),
     prevent_initial_call=True
 )
-def enviar_precos(n_clicks, valores, ids, token):
+def enviar_precos(n_clicks, valores, ids, token, rodada_atual):
     precos = []
     invalidos = 0
     for id_componente, valor in zip(ids, valores):
@@ -480,13 +532,75 @@ def enviar_precos(n_clicks, valores, ids, token):
         if preco is None: invalidos += 1
         precos.append({'id': id_componente['index'], 'preco_unitario': preco})
     if invalidos: return dbc.Alert("Preencha o preço de todos os itens com um número válido (ex: 12,50) antes de enviar.", color="warning"), False
-    bd.salvar_precos(token, precos)
-    return dbc.Alert("Preços enviados com sucesso. Obrigado!", color="success"), True
+    
+    # Resolvido: agora passa rodada_atual para o banco do Supabase atualizar a linha certa
+    bd.salvar_precos(token, precos, rodada_atual)
+    return dbc.Alert(f"Preços da {rodada_atual}ª Rodada enviados com sucesso. Obrigado!", color="success"), True
+
+# ============================================================
+# CALLBACK: CRIAR NOVA RODADA DE NEGOCIAÇÃO (Ação Interna)
+# ============================================================
+@callback(
+    Output('feedback-nova-rodada', 'children'),
+    Input('btn-nova-rodada', 'n_clicks'),
+    State('url', 'pathname'),
+    prevent_initial_call=True
+)
+def disparar_nova_rodada(n_clicks, pathname):
+    if not pathname or not pathname.startswith('/resultado/'):
+        return no_update
+    cotacao_id = pathname.replace('/resultado/', '').strip('/')
+    bd.abrir_nova_rodada_negociacao(int(cotacao_id))
+    return dbc.Alert("Nova rodada aberta com sucesso! O mesmo link do fornecedor foi liberado para receber os novos preços.", color="success")
+
+# ============================================================
+# CALLBACK: GERAR E BAIXAR ARQUIVO EXCEL POR RODADA
+# ============================================================
+@callback(
+    Output("download-excel", "data"),
+    Output("feedback-excel", "children"),
+    Input("btn-baixar-excel", "n_clicks"),
+    State("dropdown-rodada-excel", "value"),
+    State("url", "pathname"),
+    prevent_initial_call=True
+)
+def gerar_excel_rodada(n_clicks, rodada_selecionada, pathname):
+    if not rodada_selecionada:
+        return no_update, dbc.Alert("Selecione uma rodada antes de baixar.", color="warning", style={'fontSize': '12px', 'padding': '5px'})
+        
+    if not pathname or not pathname.startswith('/resultado/'):
+        return no_update, no_update
+        
+    cotacao_id = pathname.replace('/resultado/', '').strip('/')
+    cotacao_completa = bd.buscar_todas_rodadas_id(int(cotacao_id))
+    if not cotacao_completa:
+        return no_update, no_update
+        
+    fornecedor_nome = cotacao_completa['fornecedor'] or "Fornecedor"
+    itens_filtrados = [i for i in cotacao_completa['itens'] if i['rodada'] == int(rodada_selecionada)]
+    
+    if not itens_filtrados:
+        return no_update, dbc.Alert("Nenhum dado encontrado para esta rodada.", color="danger", style={'fontSize': '12px', 'padding': '5px'})
+        
+    dados_excel = []
+    for item in itens_filtrados:
+        preco = parse_preco(item['preco_unitario'])
+        qtd = item['qtd'] or 0
+        valor_total = (preco * qtd) if preco is not None else 0
+        
+        dados_excel.append({
+            "Fornecedor": fornecedor_nome,
+            "Produto": item['item'],
+            "Unidade": item['volume'] or "-",
+            "Quantidade": qtd,
+            "Valor Total": valor_total
+        })
+        
+    df = pd.DataFrame(dados_excel)
+    nome_arquivo = f"Cotacao_{cotacao_id}_Rodada_{rodada_selecionada}_{fornecedor_nome.replace(' ', '_')}.xlsx"
+    return dcc.send_data_frame(df.to_excel, nome_arquivo, index=False), None
 
 if __name__ == '__main__':
-    # Localmente roda na porta 8050; no Render, a plataforma injeta a
-    # variável de ambiente PORT automaticamente -- por isso lemos com getenv.
-    # host='0.0.0.0' é necessário pro Render conseguir enxergar o servidor
-    # (diferente do 'alterdatasrv' usado antes, que só existia na rede interna).
+    # Configuração 100% pronta para o Render e Teste Local
     porta = int(os.environ.get("PORT", 8050))
     app.run(host='0.0.0.0', port=porta, debug=False)
