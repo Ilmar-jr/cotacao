@@ -3,29 +3,16 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import contextmanager
-
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# ============================================================
-# BANCO DE DADOS (PostgreSQL / Supabase)
-# A string de conexão vem da variável de ambiente DATABASE_URL,
-# configurada no Render (Environment -> Environment Variables),
-# apontando para o seu projeto Supabase.
-# Nenhuma informação/credencial fica escrita no código.
-# ============================================================
-DATABASE_URL = os.environ["DATABASE_URL"]
-
+# Variable de ambiente configurada localmente ou no Render
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nome_banco")
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
-
 
 @contextmanager
 def get_cursor():
-    """
-    Context manager que abre a conexão, entrega um cursor (RealDictCursor,
-    pra acessar colunas pelo nome tipo linha['id']), comita no final se
-    tudo deu certo, ou desfaz (rollback) se algo der erro.
-    """
+    """Gerencia conexões abertas com commit automático e rollback em caso de falha."""
     conn = psycopg2.connect(DATABASE_URL)
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -37,14 +24,8 @@ def get_cursor():
     finally:
         conn.close()
 
-
 def criar_banco():
-    """
-    Cria as tabelas caso ainda não existam. Chamar uma vez ao iniciar o app.
-    - cotacoes: 1 linha por cotação, com um token único usado no link público.
-    - itens_cotacao: os itens de cada cotação, com o preço preenchido depois
-      pelo fornecedor (começa NULL).
-    """
+    """Cria as tabelas estruturadas com suporte a rodadas no PostgreSQL."""
     with get_cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cotacoes (
@@ -52,105 +33,124 @@ def criar_banco():
                 token TEXT UNIQUE NOT NULL,
                 fornecedor TEXT,
                 data_criacao TIMESTAMPTZ NOT NULL,
-                status TEXT NOT NULL DEFAULT 'aguardando'
+                status TEXT NOT NULL DEFAULT 'aguardando',
+                rodada_atual INTEGER NOT NULL DEFAULT 1
             )
         """)
+        
         cur.execute("""
             CREATE TABLE IF NOT EXISTS itens_cotacao (
                 id SERIAL PRIMARY KEY,
-                cotacao_id INTEGER NOT NULL REFERENCES cotacoes (id),
+                cotacao_id INTEGER NOT NULL REFERENCES cotacoes (id) ON DELETE CASCADE,
                 grupo TEXT,
                 item TEXT NOT NULL,
                 volume TEXT,
                 qtd REAL,
-                preco_unitario REAL
+                preco_unitario REAL,
+                rodada INTEGER NOT NULL DEFAULT 1
             )
         """)
 
-
 def criar_cotacao(fornecedor, itens):
-    """
-    Salva uma nova cotação e seus itens.
-    'itens' é a lista que já vem do dcc.Store (lista-store) da tela principal.
-    Retorna (id_cotacao, token) -- o token é o que entra no link enviado ao fornecedor.
-    Usamos um token aleatório (uuid4) em vez do id sequencial para que o link
-    não seja adivinhável por quem não recebeu (ele é público e sem login).
-    """
+    """Salva uma nova cotação (iniciando na rodada 1)."""
     token = uuid.uuid4().hex
     agora = datetime.now(FUSO_BR)
 
     with get_cursor() as cur:
         cur.execute(
-            "INSERT INTO cotacoes (token, fornecedor, data_criacao, status) VALUES (%s, %s, %s, %s) RETURNING id",
+            "INSERT INTO cotacoes (token, fornecedor, data_criacao, status, rodada_atual) VALUES (%s, %s, %s, %s, 1) RETURNING id",
             (token, fornecedor, agora, 'aguardando')
         )
         cotacao_id = cur.fetchone()['id']
 
         for item in itens:
             cur.execute(
-                """INSERT INTO itens_cotacao (cotacao_id, grupo, item, volume, qtd, preco_unitario)
-                   VALUES (%s, %s, %s, %s, %s, NULL)""",
+                """INSERT INTO itens_cotacao (cotacao_id, grupo, item, volume, qtd, preco_unitario, rodada)
+                   VALUES (%s, %s, %s, %s, %s, NULL, 1)""",
                 (cotacao_id, item.get('grupo'), item.get('item'), item.get('volume'), item.get('qtd'))
             )
 
     return cotacao_id, token
 
-
-def _formatar_cotacao(cotacao, itens):
-    """Monta o dicionário de retorno padrão, convertendo a data para texto ISO."""
-    return {
-        "id": cotacao['id'],
-        "token": cotacao['token'],
-        "fornecedor": cotacao['fornecedor'],
-        "status": cotacao['status'],
-        "data_criacao": cotacao['data_criacao'].isoformat(),
-        "itens": [dict(i) for i in itens],
-    }
-
-
-def buscar_cotacao_por_token(token):
-    """Busca a cotação e seus itens pelo token do link. Retorna None se não existir."""
+def buscar_cotacao_para_responder(token):
+    """Retorna os metadados da cotação e APENAS os itens pertencentes à rodada_atual ativa."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes WHERE token = %s", (token,))
         cotacao = cur.fetchone()
         if cotacao is None:
             return None
 
-        cur.execute("SELECT * FROM itens_cotacao WHERE cotacao_id = %s", (cotacao['id'],))
+        # Filtra estritamente pela rodada atual no momento da resposta do fornecedor
+        cur.execute(
+            "SELECT * FROM itens_cotacao WHERE cotacao_id = %s AND rodada = %s", 
+            (cotacao['id'], cotacao['rodada_atual'])
+        )
         itens = cur.fetchall()
-        return _formatar_cotacao(cotacao, itens)
+        
+        return {
+            "id": cotacao['id'],
+            "token": cotacao['token'],
+            "fornecedor": cotacao['fornecedor'],
+            "status": cotacao['status'],
+            "rodada_atual": cotacao['rodada_atual'],
+            "data_criacao": cotacao['data_criacao'].isoformat(),
+            "itens": [dict(i) for i in itens]
+        }
 
-
-def buscar_cotacao_por_id(cotacao_id):
-    """Igual a buscar_cotacao_por_token, mas buscando pelo ID (usado na tela de resultado interna)."""
+def buscar_todas_rodadas_id(cotacao_id):
+    """Retorna o histórico completo (todas as rodadas ordenadas) para o painel de resultados."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes WHERE id = %s", (cotacao_id,))
         cotacao = cur.fetchone()
         if cotacao is None:
             return None
 
-        cur.execute("SELECT * FROM itens_cotacao WHERE cotacao_id = %s", (cotacao['id'],))
+        # Traz tudo ordenado da rodada mais recente para a mais antiga
+        cur.execute("SELECT * FROM itens_cotacao WHERE cotacao_id = %s ORDER BY rodada DESC, id ASC", (cotacao['id'],))
         itens = cur.fetchall()
-        return _formatar_cotacao(cotacao, itens)
+        
+        return {
+            "id": cotacao['id'],
+            "token": cotacao['token'],
+            "fornecedor": cotacao['fornecedor'],
+            "status": cotacao['status'],
+            "rodada_atual": cotacao['rodada_atual'],
+            "data_criacao": cotacao['data_criacao'].isoformat(),
+            "itens": [dict(i) for i in itens]
+        }
 
-
-def salvar_precos(token, precos):
-    """
-    Grava os preços preenchidos pelo fornecedor.
-    'precos' é uma lista de dicts: [{'id': <id do item>, 'preco_unitario': <valor>}, ...]
-    Ao salvar, marca a cotação como 'respondida'.
-    """
+def salvar_precos(token, precos, rodada_atual):
+    """Salva os preços informados aplicando-os na respectiva rodada."""
     with get_cursor() as cur:
         for p in precos:
-            cur.execute(
-                "UPDATE itens_cotacao SET preco_unitario = %s WHERE id = %s",
-                (p.get('preco_unitario'), p['id'])
-            )
+            cur.execute("""
+                UPDATE itens_cotacao 
+                SET preco_unitario = %s 
+                WHERE id = %s AND rodada = %s
+            """, (p.get('preco_unitario'), p['id'], rodada_atual))
+            
         cur.execute("UPDATE cotacoes SET status = 'respondida' WHERE token = %s", (token,))
 
+def abrir_nova_rodada_negociacao(cotacao_id):
+    """Abre uma rodada evolutiva, duplicando a lista de itens com valor nulo."""
+    with get_cursor() as cur:
+        cur.execute("""
+            UPDATE cotacoes 
+            SET rodada_atual = rodada_atual + 1, status = 'aguardando' 
+            WHERE id = %s 
+            RETURNING rodada_atual
+        """, (cotacao_id,))
+        nova_rodada = cur.fetchone()['rodada_atual']
+        
+        cur.execute("""
+            INSERT INTO itens_cotacao (cotacao_id, grupo, item, volume, qtd, preco_unitario, rodada)
+            SELECT cotacao_id, grupo, item, volume, qtd, NULL, %s
+            FROM itens_cotacao
+            WHERE cotacao_id = %s AND rodada = %s
+        """, (nova_rodada, cotacao_id, nova_rodada - 1))
 
 def listar_cotacoes():
-    """Lista todas as cotações já criadas (mais recente primeiro)."""
+    """Lista o cabeçalho de todas as cotações geradas."""
     with get_cursor() as cur:
         cur.execute("SELECT * FROM cotacoes ORDER BY id DESC")
         linhas = cur.fetchall()
