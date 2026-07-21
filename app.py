@@ -2,12 +2,14 @@ import os
 from dash import html, dcc, dash_table, Output, Input, State, callback, Dash, callback_context, no_update, ALL
 import dash_bootstrap_components as dbc
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from flask import request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import banco as bd
 
-# Executa a criação das tabelas se elas não existirem no Postgres local/Supabase
+# Executa a criação das tabelas se elas não existirem no Postgres/Supabase
 bd.criar_banco()
 
 # ============================================================
@@ -22,7 +24,7 @@ app = Dash(
 )
 server = app.server
 
-# Necessário para o Render gerenciar HTTPS e Proxy de forma nativa
+# Necessário para o Render gerenciar HTTPS e Proxy
 server.wsgi_app = ProxyFix(server.wsgi_app, x_proto=1, x_host=1)
 
 COR_BG = "#0e1218"
@@ -36,8 +38,7 @@ COR_ACCENT_2 = "#3b82c4"
 COR_PERIGO = "#e5484d"
 COR_SUCESSO = "#3ba55d"
 
-# Para produção no Render, utilize variáveis de ambiente. Mantido o fallback para teste local.
-SENHA_INTERNA = os.environ.get("SENHA_INTERNA", "Tutti123")
+SENHA_INTERNA = os.environ.get("SENHA_INTERNA", "admin123")
 
 INDEX_STRING = '''
 <!DOCTYPE html>
@@ -119,13 +120,9 @@ def layout_login():
     ], fluid=True)
 
 # ============================================================
-# LAYOUT 1: TELA INTERNA -- montar a cotação
+# LAYOUT 1: TELA INTERNA -- PAINEL COMPLETO
 # ============================================================
-import plotly.express as px
-import plotly.graph_objects as go
-
 def layout_cotacao_interna():
-    # Busca dinamicamente os filtros existentes
     fornecedores_opts = [{'label': 'Todos os Fornecedores', 'value': 'todos'}] + [{'label': f, 'value': f} for f in fn]
     produtos_opts = [{'label': 'Todos os Produtos', 'value': 'todos'}] + [{'label': p, 'value': p} for p in todos_produtos]
 
@@ -142,13 +139,8 @@ def layout_cotacao_interna():
             # ABA 1: OPERACIONAL
             dbc.Tab(label="📋 Gerenciar & Criar Cotações", tab_id="tab-operacional", children=[
                 html.Div([
-                    
-                    # 1. STORE NECESSÁRIO PARA SALVAR ITENS NA MEMÓRIA
                     dcc.Store(id='lista-store', data=[]),
                     
-                    # =======================================================
-                    # FORMULÁRIO DE CRIAÇÃO DE COTAÇÕES
-                    # =======================================================
                     dbc.Card([
                         dbc.CardBody([
                             dbc.Row([
@@ -195,9 +187,6 @@ def layout_cotacao_interna():
 
                     html.Div(id='resultado-link'),
                     
-                    # =======================================================
-                    # TABELA DE COTAÇÕES JÁ CRIADAS
-                    # =======================================================
                     html.Div([dbc.Row([dbc.Col(html.Span("COTAÇÕES CRIADAS"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
                     dbc.Card([
                         dbc.CardBody([
@@ -216,7 +205,6 @@ def layout_cotacao_interna():
             # ABA 2: RELATÓRIOS E BI
             dbc.Tab(label="📊 Relatório & Análise de Negociação", tab_id="tab-relatorio", children=[
                 html.Div([
-                    # Filtros Principais
                     dbc.Card([
                         dbc.CardBody([
                             dbc.Row([
@@ -228,7 +216,6 @@ def layout_cotacao_interna():
                         ])
                     ], className="card-cotacao mb-4"),
 
-                    # Indicadores / KPIs de Desempenho
                     dbc.Row([
                         dbc.Col(dbc.Card([dbc.CardBody([
                             html.Div("Total de Cotações Analisadas", style={'color': COR_MUTED, 'fontSize': '12px'}),
@@ -251,9 +238,7 @@ def layout_cotacao_interna():
                         ])], className="card-cotacao"), width=3),
                     ], className="mb-4"),
 
-                    # Gráficos
                     dbc.Row([
-                        # Evolução de Preço por Rodada (Gráfico de Linhas)
                         dbc.Col(dbc.Card([
                             dbc.CardBody([
                                 html.Div("Evolução do Valor Total por Rodada de Negociação", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
@@ -261,7 +246,6 @@ def layout_cotacao_interna():
                             ])
                         ], className="card-cotacao"), width=7),
 
-                        # Desempenho por Fornecedor
                         dbc.Col(dbc.Card([
                             dbc.CardBody([
                                 html.Div("Economia Gerada por Fornecedor (R$)", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
@@ -270,7 +254,6 @@ def layout_cotacao_interna():
                         ], className="card-cotacao"), width=5),
                     ], className="mb-4"),
 
-                    # Tabela Detalhada das Rodadas
                     dbc.Card([
                         dbc.CardBody([
                             html.Div("Histórico Detalhado dos Itens Negociados", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
@@ -283,10 +266,58 @@ def layout_cotacao_interna():
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
 # ============================================================
-# LAYOUT 2: TELA PÚBLICA -- fornecedor preenche o preço (Rodadas)
+# FUNÇÃO RESTAURADA: MONTAR TABELA DE COTAÇÕES
+# ============================================================
+def montar_tabela_cotacoes(busca=None, status=None, data_inicio=None, data_fim=None):
+    cotacoes = bd.listar_cotacoes()
+    if busca:
+        busca_lower = busca.strip().lower()
+        cotacoes = [c for c in cotacoes if busca_lower in str(c['id']) or busca_lower in (c['fornecedor'] or "").lower()]
+    if status and status != 'todas':
+        cotacoes = [c for c in cotacoes if c['status'] == status]
+    if data_inicio:
+        cotacoes = [c for c in cotacoes if str(c['data_criacao'])[:10] >= data_inicio[:10]]
+    if data_fim:
+        cotacoes = [c for c in cotacoes if str(c['data_criacao'])[:10] <= data_fim[:10]]
+
+    if not cotacoes:
+        return html.Div("Nenhuma cotação encontrada com esse filtro.", style={'color': COR_MUTED, 'fontSize': '13px'})
+
+    base_url = request.host_url.rstrip('/')
+    linhas = [
+        {
+            "id": c['id'],
+            "cotacao": f"#{c['id']}",
+            "fornecedor": c['fornecedor'] or "-",
+            "data_criacao": str(c['data_criacao'])[:16],
+            "status": "Respondida" if c['status'] == 'respondida' else "Aguardando fornecedor",
+            "link": f"{base_url}/responder/{c['token']}",
+        } for c in cotacoes
+    ]
+
+    return html.Div([
+        html.Div("Clique em uma linha para ver o resultado.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '10px'}),
+        dash_table.DataTable(
+            id='tabela-cotacoes',
+            columns=[
+                {"name": "Cotação", "id": "cotacao"},
+                {"name": "Fornecedor", "id": "fornecedor"},
+                {"name": "Criada em", "id": "data_criacao"},
+                {"name": "Status", "id": "status"},
+                {"name": "Link para o fornecedor", "id": "link"},
+            ],
+            data=linhas,
+            style_header={'backgroundColor': COR_CARD_2, 'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}'},
+            style_cell={'backgroundColor': COR_CARD, 'color': COR_TEXTO, 'textAlign': 'left', 'padding': '10px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}', 'fontFamily': 'Inter, sans-serif', 'cursor': 'pointer'},
+            style_cell_conditional=[{'if': {'column_id': 'link'}, 'fontFamily': 'monospace', 'fontSize': '12px', 'color': COR_ACCENT_2, 'cursor': 'text'}],
+            style_as_list_view=True,
+        )
+    ])
+
+# ============================================================
+# LAYOUT 2: TELA PÚBLICA FORNECEDOR
 # ============================================================
 def layout_responder_fornecedor(token):
-    # Sincronizado para buscar apenas os itens da rodada atual ativa
     cotacao = bd.buscar_cotacao_para_responder(token)
     if cotacao is None:
         return dbc.Container([html.Div([html.I(className="bi bi-exclamation-triangle me-2", style={'color': COR_PERIGO}), html.Span("Link inválido ou cotação não encontrada.", style={'color': COR_TEXTO, 'fontSize': '18px'})], style={'marginTop': '60px'})], style={'paddingLeft': '80px', 'paddingRight': '80px'}, fluid=True)
@@ -331,7 +362,7 @@ def layout_responder_fornecedor(token):
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
 # ============================================================
-# LAYOUT 3: TELA INTERNA -- histórico evolutivo de rodadas
+# LAYOUT 3: HISTÓRICO DE RODADAS
 # ============================================================
 def layout_resultado_cotacao(cotacao_id):
     try:
@@ -370,21 +401,18 @@ def layout_resultado_cotacao(cotacao_id):
         html.Div([
             dcc.Link("← Voltar para a tela principal", href="/", style={'color': COR_MUTED, 'fontSize': '13px'}),
             html.Div([html.I(className="bi bi-bar-chart-line-fill me-2", style={'color': COR_ACCENT_2}), html.Span(f"HISTÓRICO DE NEGOCIAÇÃO - COTAÇÃO Nº {cotacao_completa['id']}", className="titulo-cotacao", style={'fontSize': '26px', 'fontWeight': '700', 'color': COR_TEXTO})], style={'marginTop': '10px'}),
-            html.Div([html.Span(f"Fornecedor: {cotacao_completa['fornecedor'] or '-'}   •   Criada em {cotacao_completa['data_criacao']}   •   ", style={'color': COR_MUTED, 'fontSize': '14px'}), dbc.Badge(cotacao_completa['status'].upper(), color="success" if respondida else "warning")], style={'marginTop': '4px'}),
+            html.Div([html.Span(f"Fornecedor: {cotacao_completa['fornecedor'] or '-'}   •   Criada em {str(cotacao_completa['data_criacao'])[:16]}   •   ", style={'color': COR_MUTED, 'fontSize': '14px'}), dbc.Badge(cotacao_completa['status'].upper(), color="success" if respondida else "warning")], style={'marginTop': '4px'}),
         ], style={'padding': '18px 4px 8px 4px'}),
         
-        # CARD DE GERENCIAMENTO (Nova rodada à esquerda + Download Excel à direita)
         dbc.Card([
             dbc.CardBody([
                 dbc.Row([
-                    # Lado Esquerdo: Reabrir cotação
                     dbc.Col([
                         html.Div("Negociar valores:", style={'color': COR_TEXTO, 'fontSize': '14px', 'marginBottom': '10px', 'fontWeight': '600'}),
                         dbc.Button([html.I(className="bi bi-arrow-repeat me-2"), "Reabrir Cotação (Solicitar Nova Rodada de Preços)"], id='btn-nova-rodada', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700', 'width': '100%'}, size="sm"),
                         html.Div(id='feedback-nova-rodada', style={'marginTop': '10px'})
                     ], width=6, style={'borderRight': f'1px solid {COR_BORDA}'}),
                     
-                    # Lado Direito: Exportar planilha
                     dbc.Col([
                         html.Div("Exportar para Excel:", style={'color': COR_TEXTO, 'fontSize': '14px', 'marginBottom': '10px', 'fontWeight': '600'}),
                         dbc.Row([
@@ -397,7 +425,6 @@ def layout_resultado_cotacao(cotacao_id):
             ])
         ], className="card-cotacao mb-4", style={'border': f'1px solid {COR_BORDA}'}),
 
-        # Histórico Completo de Itens
         dbc.Card([
             dbc.CardBody([
                 html.Div("Histórico evolutivo de preços (As rodadas mais recentes aparecem no topo):", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
@@ -422,6 +449,9 @@ def layout_resultado_cotacao(cotacao_id):
         ], className="card-cotacao"),
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
+# ============================================================
+# CALLBACKS RELATÓRIO BI
+# ============================================================
 @callback(
     Output('kpi-total-cotacoes', 'children'),
     Output('kpi-valor-inicial', 'children'),
@@ -447,10 +477,7 @@ def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
 
     df = pd.DataFrame(dados)
 
-    # 1. KPIs
     cotacoes_unicas = df['cotacao_id'].nunique()
-    
-    # Agrupamento para calcular Inicial vs Final por cotação
     agrupado = df.groupby(['cotacao_id', 'rodada'])['total_item'].sum().reset_index()
     
     rodada_minima = agrupado.groupby('cotacao_id')['rodada'].min().reset_index()
@@ -471,7 +498,6 @@ def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
         texto_resultado = "Sem alteração"
         estilo_resultado = {'color': COR_MUTED}
 
-    # 2. Gráfico 1: Evolução por Rodada
     df_evolucao = df.groupby(['rodada', 'cotacao_id'])['total_item'].sum().reset_index()
     df_evolucao['rodada_label'] = df_evolucao['rodada'].astype(str) + "ª Rodada"
     
@@ -485,7 +511,6 @@ def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
     )
     fig_evolucao.update_layout(template="plotly_dark", paper_bgcolor=COR_CARD, plot_bgcolor=COR_CARD, margin=dict(l=20, r=20, t=20, b=20))
 
-    # 3. Gráfico 2: Economia por Fornecedor
     df_fornecedor = df.groupby(['fornecedor', 'rodada'])['total_item'].sum().reset_index()
     f_min = df_fornecedor.groupby('fornecedor')['rodada'].min().reset_index()
     f_max = df_fornecedor.groupby('fornecedor')['rodada'].max().reset_index()
@@ -511,7 +536,6 @@ def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
     )
     fig_economia.update_layout(template="plotly_dark", paper_bgcolor=COR_CARD, plot_bgcolor=COR_CARD, margin=dict(l=20, r=20, t=20, b=20))
 
-    # 4. Tabela Detalhada
     df['data_criacao'] = df['data_criacao'].astype(str).str[:10]
     df['preco_unitario'] = df['preco_unitario'].apply(lambda x: f"R$ {x:,.2f}")
     df['total_item'] = df['total_item'].apply(lambda x: f"R$ {x:,.2f}")
@@ -546,7 +570,7 @@ def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
     )
 
 # ============================================================
-# LAYOUT RAIZ + ROTEAMENTO COM TRAVA DE SEGURANÇA
+# ROUTING E SEGURANÇA
 # ============================================================
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
@@ -574,7 +598,7 @@ def rotear_pagina(pathname, logado):
     return layout_cotacao_interna()
 
 # ============================================================
-# CALLBACK: CONTROLE DE ACESSO (LOGIN)
+# CALLBACK: LOGIN
 # ============================================================
 @callback(
     Output('sessao-interna', 'data'),
@@ -589,7 +613,7 @@ def realizar_login(n_clicks, senha_digitada):
     return False, dbc.Alert("Senha incorreta. Tente novamente.", color="danger")
 
 # ============================================================
-# OUTROS CALLBACKS ORIGINAIS (MANTIDOS ENCAPSULADOS)
+# DEMAIS CALLBACKS
 # ============================================================
 @callback(
     Output('produtos', 'options'), Output('produtos', 'value'), Output('input-volume', 'value'), Output('input-qtd', 'value'), Output('lista-store', 'data'), Output('tabela-lista', 'data'), Output('badge-total-itens', 'children'), Output('badge-total-qtd', 'children'),
@@ -653,7 +677,7 @@ def finalizar_cotacao(n_clicks, fornecedor_sel, lista_atual):
 def ir_para_resultado(celula_ativa, linhas):
     if not celula_ativa or not linhas: return no_update
     if celula_ativa.get('column_id') == 'link': return no_update
-    linha = lines = linhas[celula_ativa['row']]
+    linha = linhas[celula_ativa['row']]
     return f"/resultado/{linha['id']}"
 
 @callback(
@@ -665,9 +689,6 @@ def atualizar_lista_cotacoes(pathname, n_clicks, busca, status, data_inicio, dat
     if pathname not in (None, '', '/'): return no_update
     return montar_tabela_cotacoes(busca, status, data_inicio, data_fim)
 
-# ============================================================
-# CALLBACK: SALVAR PREÇOS DO FORNECEDOR (Sincronizado com Rodada)
-# ============================================================
 @callback(
     Output('mensagem-envio', 'children'), Output('Btn-enviar-precos', 'disabled'),
     Input('Btn-enviar-precos', 'n_clicks'), 
@@ -686,13 +707,9 @@ def enviar_precos(n_clicks, valores, ids, token, rodada_atual):
         precos.append({'id': id_componente['index'], 'preco_unitario': preco})
     if invalidos: return dbc.Alert("Preencha o preço de todos os itens com um número válido (ex: 12,50) antes de enviar.", color="warning"), False
     
-    # Resolvido: agora passa rodada_atual para o banco do Supabase atualizar a linha certa
     bd.salvar_precos(token, precos, rodada_atual)
     return dbc.Alert(f"Preços da {rodada_atual}ª Rodada enviados com sucesso. Obrigado!", color="success"), True
 
-# ============================================================
-# CALLBACK: CRIAR NOVA RODADA DE NEGOCIAÇÃO (Ação Interna)
-# ============================================================
 @callback(
     Output('feedback-nova-rodada', 'children'),
     Input('btn-nova-rodada', 'n_clicks'),
@@ -706,9 +723,6 @@ def disparar_nova_rodada(n_clicks, pathname):
     bd.abrir_nova_rodada_negociacao(int(cotacao_id))
     return dbc.Alert("Nova rodada aberta com sucesso! O mesmo link do fornecedor foi liberado para receber os novos preços.", color="success")
 
-# ============================================================
-# CALLBACK: GERAR E BAIXAR ARQUIVO EXCEL POR RODADA
-# ============================================================
 @callback(
     Output("download-excel", "data"),
     Output("feedback-excel", "children"),
@@ -754,6 +768,5 @@ def gerar_excel_rodada(n_clicks, rodada_selecionada, pathname):
     return dcc.send_data_frame(df.to_excel, nome_arquivo, index=False), None
 
 if __name__ == '__main__':
-    # Configuração 100% pronta para o Render e Teste Local
     porta = int(os.environ.get("PORT", 8050))
     app.run(host='0.0.0.0', port=porta, debug=False)
