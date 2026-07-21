@@ -414,6 +414,129 @@ def layout_resultado_cotacao(cotacao_id):
         ], className="card-cotacao"),
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
+@callback(
+    Output('kpi-total-cotacoes', 'children'),
+    Output('kpi-valor-inicial', 'children'),
+    Output('kpi-valor-final', 'children'),
+    Output('kpi-resultado-financeiro', 'children'),
+    Output('kpi-resultado-financeiro', 'style'),
+    Output('grafico-evolucao-rodadas', 'figure'),
+    Output('grafico-economia-fornecedor', 'figure'),
+    Output('tabela-relatorio-detalhada', 'children'),
+    Input('rel-data-inicio', 'date'),
+    Input('rel-data-fim', 'date'),
+    Input('rel-fornecedor', 'value'),
+    Input('rel-produto', 'value'),
+    prevent_initial_call=False
+)
+def atualizar_painel_relatorio(dt_inicio, dt_fim, fornecedor, produto):
+    dados = bd.gerar_relatorio_negociacoes(dt_inicio, dt_fim, fornecedor, produto)
+
+    if not dados:
+        fig_vazia = go.Figure().update_layout(template="plotly_dark", paper_bgcolor=COR_CARD, plot_bgcolor=COR_CARD)
+        msg_vazia = html.Div("Nenhum registro encontrado para os filtros selecionados.", style={'color': COR_MUTED, 'fontSize': '13px'})
+        return "0", "R$ 0,00", "R$ 0,00", "R$ 0,00", {'color': COR_MUTED}, fig_vazia, fig_vazia, msg_vazia
+
+    df = pd.DataFrame(dados)
+
+    # 1. KPIs
+    cotacoes_unicas = df['cotacao_id'].nunique()
+    
+    # Agrupamento para calcular Inicial vs Final por cotação
+    agrupado = df.groupby(['cotacao_id', 'rodada'])['total_item'].sum().reset_index()
+    
+    rodada_minima = agrupado.groupby('cotacao_id')['rodada'].min().reset_index()
+    rodada_maxima = agrupado.groupby('cotacao_id')['rodada'].max().reset_index()
+
+    val_inicial = sum([agrupado[(agrupado['cotacao_id'] == row['cotacao_id']) & (agrupado['rodada'] == row['rodada'])]['total_item'].values[0] for _, row in rodada_minima.iterrows()])
+    val_final = sum([agrupado[(agrupado['cotacao_id'] == row['cotacao_id']) & (agrupado['rodada'] == row['rodada'])]['total_item'].values[0] for _, row in rodada_maxima.iterrows()])
+
+    diferenca = val_inicial - val_final
+
+    if diferenca > 0:
+        texto_resultado = f"Economia: R$ {diferenca:,.2f}"
+        estilo_resultado = {'color': COR_SUCESSO}
+    elif diferenca < 0:
+        texto_resultado = f"Prejuízo: R$ {abs(diferenca):,.2f}"
+        estilo_resultado = {'color': COR_PERIGO}
+    else:
+        texto_resultado = "Sem alteração"
+        estilo_resultado = {'color': COR_MUTED}
+
+    # 2. Gráfico 1: Evolução por Rodada
+    df_evolucao = df.groupby(['rodada', 'cotacao_id'])['total_item'].sum().reset_index()
+    df_evolucao['rodada_label'] = df_evolucao['rodada'].astype(str) + "ª Rodada"
+    
+    fig_evolucao = px.line(
+        df_evolucao, 
+        x='rodada_label', 
+        y='total_item', 
+        color='cotacao_id',
+        markers=True,
+        labels={'total_item': 'Valor Total (R$)', 'rodada_label': 'Fase de Negociação', 'cotacao_id': 'Cotação Nº'}
+    )
+    fig_evolucao.update_layout(template="plotly_dark", paper_bgcolor=COR_CARD, plot_bgcolor=COR_CARD, margin=dict(l=20, r=20, t=20, b=20))
+
+    # 3. Gráfico 2: Economia por Fornecedor
+    df_fornecedor = df.groupby(['fornecedor', 'rodada'])['total_item'].sum().reset_index()
+    f_min = df_fornecedor.groupby('fornecedor')['rodada'].min().reset_index()
+    f_max = df_fornecedor.groupby('fornecedor')['rodada'].max().reset_index()
+
+    economia_forn = []
+    for f in df_fornecedor['fornecedor'].unique():
+        r_ini = f_min[f_min['fornecedor'] == f]['rodada'].values[0]
+        r_fim = f_max[f_max['fornecedor'] == f]['rodada'].values[0]
+        
+        v_ini = df_fornecedor[(df_fornecedor['fornecedor'] == f) & (df_fornecedor['rodada'] == r_ini)]['total_item'].values[0]
+        v_fim = df_fornecedor[(df_fornecedor['fornecedor'] == f) & (df_fornecedor['rodada'] == r_fim)]['total_item'].values[0]
+        
+        economia_forn.append({'fornecedor': f, 'economia': v_ini - v_fim})
+
+    df_econ = pd.DataFrame(economia_forn)
+    fig_economia = px.bar(
+        df_econ, 
+        x='fornecedor', 
+        y='economia',
+        color='economia',
+        color_continuous_scale=['red', 'yellow', 'green'],
+        labels={'economia': 'Economia (R$)', 'fornecedor': 'Fornecedor'}
+    )
+    fig_economia.update_layout(template="plotly_dark", paper_bgcolor=COR_CARD, plot_bgcolor=COR_CARD, margin=dict(l=20, r=20, t=20, b=20))
+
+    # 4. Tabela Detalhada
+    df['data_criacao'] = df['data_criacao'].astype(str).str[:10]
+    df['preco_unitario'] = df['preco_unitario'].apply(lambda x: f"R$ {x:,.2f}")
+    df['total_item'] = df['total_item'].apply(lambda x: f"R$ {x:,.2f}")
+    
+    tabela = dash_table.DataTable(
+        columns=[
+            {"name": "Cotação Nº", "id": "cotacao_id"},
+            {"name": "Data", "id": "data_criacao"},
+            {"name": "Fornecedor", "id": "fornecedor"},
+            {"name": "Rodada", "id": "rodada"},
+            {"name": "Produto", "id": "produto"},
+            {"name": "Qtd", "id": "qtd"},
+            {"name": "Preço Unit.", "id": "preco_unitario"},
+            {"name": "Subtotal", "id": "total_item"},
+        ],
+        data=df.to_dict('records'),
+        style_header={'backgroundColor': COR_CARD_2, 'color': COR_MUTED, 'fontWeight': '600', 'borderBottom': f'1px solid {COR_BORDA}'},
+        style_cell={'backgroundColor': COR_CARD, 'color': COR_TEXTO, 'textAlign': 'left', 'padding': '10px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}'},
+        page_size=10,
+        style_as_list_view=True
+    )
+
+    return (
+        str(cotacoes_unicas),
+        f"R$ {val_inicial:,.2f}",
+        f"R$ {val_final:,.2f}",
+        texto_resultado,
+        estilo_resultado,
+        fig_evolucao,
+        fig_economia,
+        tabela
+    )
+
 # ============================================================
 # LAYOUT RAIZ + ROTEAMENTO COM TRAVA DE SEGURANÇA
 # ============================================================
