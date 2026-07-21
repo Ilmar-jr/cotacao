@@ -156,3 +156,44 @@ def listar_cotacoes():
             {**dict(r), "data_criacao": r['data_criacao'].isoformat()}
             for r in linhas
         ]
+
+def gerar_relatorio_negociacoes(data_inicio=None, data_fim=None, fornecedor=None, produto=None):
+    """
+    Consolida o histórico de cotações com métricas financeiras de economia/êxito por rodada.
+    """
+    query = """
+        SELECT 
+            c.id AS cotacao_id,
+            c.fornecedor,
+            c.status,
+            c.data_criacao,
+            ic.rodada,
+            ic.item AS produto,
+            ic.qtd,
+            ic.preco_unitario,
+            (ic.qtd * ic.preco_unitario) AS total_item
+        FROM cotacoes c
+        JOIN itens_cotacao ic ON c.id = ic.cotacao_id
+        WHERE ic.preco_unitario IS NOT NULL
+    """
+    params = []
+
+    if data_inicio:
+        query += " AND c.data_criacao >= %s"
+        params.append(data_inicio)
+    if data_fim:
+        query += " AND c.data_criacao <= %s"
+        params.append(data_fim)
+    if fornecedor and fornecedor != 'todos':
+        query += " AND c.fornecedor = %s"
+        params.append(fornecedor)
+    if produto and produto != 'todos':
+        query += " AND ic.item = %s"
+        params.append(produto)
+
+    query += " ORDER BY c.id DESC, ic.rodada ASC"
+
+    with get_cursor() as cur:
+        cur.execute(query, params)
+        linhas = cur.fetchall()
+        return [dict(r) for r in linhas]
