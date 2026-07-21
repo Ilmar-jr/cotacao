@@ -37,7 +37,7 @@ COR_PERIGO = "#e5484d"
 COR_SUCESSO = "#3ba55d"
 
 # Para produção no Render, utilize variáveis de ambiente. Mantido o fallback para teste local.
-SENHA_INTERNA = os.environ.get("SENHA_INTERNA", "admin123")
+SENHA_INTERNA = os.environ.get("SENHA_INTERNA", "123")
 
 INDEX_STRING = '''
 <!DOCTYPE html>
