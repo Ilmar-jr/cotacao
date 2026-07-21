@@ -51,24 +51,42 @@ def criar_banco():
             )
         """)
 
-def criar_cotacao(fornecedor, itens):
+import uuid
+from datetime import datetime
+
+def criar_cotacao(fornecedor: str, itens: list[dict]) -> tuple[int, str]:
     """Salva uma nova cotação vinculando os itens à rodada inicial 1."""
     token = uuid.uuid4().hex
     agora = datetime.now(FUSO_BR)
 
     with get_cursor() as cur:
+        # 1. Cria a cotação principal
         cur.execute(
-            "INSERT INTO cotacoes (token, fornecedor, data_criacao, status, rodada_atual) VALUES (%s, %s, %s, %s, 1) RETURNING id",
+            """INSERT INTO cotacoes (token, fornecedor, data_criacao, status, rodada_atual) 
+               VALUES (%s, %s, %s, %s, 1) RETURNING id""",
             (token, fornecedor, agora, 'aguardando')
         )
         cotacao_id = cur.fetchone()['id']
 
-        for item in itens:
-            cur.execute(
-                """INSERT INTO itens_cotacao (cotacao_id, grupo, item, volume, qtd, preco_unitario, rodada)
-                   VALUES (%s, %s, %s, %s, %s, NULL, 1)""",
-                (cotacao_id, item.get('grupo'), item.get('item'), item.get('volume'), item.get('qtd'))
+        # 2. Prepara a lista de tuplas para inserção em lote
+        itens_para_inserir = [
+            (
+                cotacao_id, 
+                item.get('grupo'), 
+                item.get('item'), 
+                item.get('marca'),  # Corrigido: 'marca' adicionada aqui
+                item.get('volume'), 
+                item.get('qtd')
             )
+            for item in itens
+        ]
+
+        # 3. Insere todos os itens de uma única vez (Bulk Insert)
+        cur.executemany(
+            """INSERT INTO itens_cotacao (cotacao_id, grupo, item, marca, volume, qtd, preco_unitario, rodada)
+               VALUES (%s, %s, %s, %s, %s, %s, NULL, 1)""",
+            itens_para_inserir
+        )
 
     return cotacao_id, token
 
