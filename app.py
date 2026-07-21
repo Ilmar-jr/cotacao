@@ -152,11 +152,12 @@ def layout_cotacao_interna():
                     dbc.Card([
                         dbc.CardBody([
                             dbc.Row([
-                                campo("Grupo", dcc.Dropdown(id='grupo', options=[{'label': g, 'value': g} for g in grupo], placeholder="Selecione...", style={'color': '#000'}), 3),
-                                campo("Produto", dcc.Dropdown(id='produtos', placeholder="Selecione o produto...", style={'color': '#000'}), 4),
-                                campo("Volume", dcc.Input(id='input-volume', type='text', placeholder="Ex: CX", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
-                                campo("Qtd", dcc.Input(id='input-qtd', type='number', placeholder="0", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
-                              dbc.Col(dbc.Button([html.I(className="bi bi-plus-circle me-2"), "Add"], id='Btn-salvar', n_clicks=0, style={'backgroundColor': COR_ACCENT_2, 'border': 'none', 'marginTop': '24px', 'width': '100%'}), width=1)
+                                campo("Grupo", dcc.Dropdown(id='grupo', options=[{'label': g, 'value': g} for g in grupo], placeholder="Selecione...", style={'color': '#000'}), 2),
+                                campo("Produto", dcc.Dropdown(id='produtos', placeholder="Selecione o produto...", style={'color': '#000'}), 3),
+                                campo("Marca Aceita", dcc.Input(id='input-marca', type='text', placeholder="Ex: Piracanjuba, Nestlé...", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 3),
+                                campo("Unidade", dcc.Input(id='input-volume', type='text', placeholder="Ex: CX, KG", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
+                                campo("Qtd", dcc.Input(id='input-qtd', type='number', placeholder="0", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 1),
+                                dbc.Col(dbc.Button([html.I(className="bi bi-plus-circle me-2"), "Add"], id='Btn-salvar', n_clicks=0, style={'backgroundColor': COR_ACCENT_2, 'border': 'none', 'marginTop': '24px', 'width': '100%'}), width=1)
                             ], className="g-2")
                         ])
                     ], className="card-cotacao mb-3"),
@@ -325,10 +326,12 @@ def layout_responder_fornecedor(token):
     rodada = cotacao['rodada_atual']
     ja_respondida = cotacao['status'] == 'respondida'
     
+    # Ajuste nas larguras das colunas para caber a marca
     cabecalho = dbc.Row([
-        dbc.Col("Grupo", width=3), 
+        dbc.Col("Grupo", width=2), 
         dbc.Col("Item", width=3), 
-        dbc.Col("Volume", width=2), 
+        dbc.Col("Marcas Aceitas", width=2), 
+        dbc.Col("Unid", width=1), 
         dbc.Col("Qtd", width=1), 
         dbc.Col(f"Preço Unitário ({rodada}ª Rodada)", width=3)
     ], className="py-2", style={'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'borderBottom': f'1px solid {COR_BORDA}'})
@@ -340,7 +343,14 @@ def layout_responder_fornecedor(token):
         else:
             campo_preco = dcc.Input(id={'type': 'preco-input', 'index': item['id']}, type="text", placeholder="Ex: 12,50", value=(str(item['preco_unitario']) if item['preco_unitario'] is not None else None), style={'width': '100%', 'height': '36px', 'borderRadius': '6px'})
         
-        linhas.append(dbc.Row([dbc.Col(item['grupo'] or "-", width=3, style={'color': COR_TEXTO}), dbc.Col(item['item'], width=3, style={'color': COR_TEXTO}), dbc.Col(item['volume'] or "-", width=2, style={'color': COR_TEXTO}), dbc.Col(item['qtd'], width=1, style={'color': COR_TEXTO}), dbc.Col(campo_preco, width=3)], className="py-2 align-items-center", style={'borderBottom': f'1px solid {COR_BORDA}'}))
+        linhas.append(dbc.Row([
+            dbc.Col(item['grupo'] or "-", width=2, style={'color': COR_TEXTO}), 
+            dbc.Col(item['item'], width=3, style={'color': COR_TEXTO}), 
+            dbc.Col(item.get('marca', '-'), width=2, style={'color': COR_ACCENT_2, 'fontSize': '13px'}), 
+            dbc.Col(item['volume'] or "-", width=1, style={'color': COR_TEXTO}), 
+            dbc.Col(item['qtd'], width=1, style={'color': COR_TEXTO}), 
+            dbc.Col(campo_preco, width=3)
+        ], className="py-2 align-items-center", style={'borderBottom': f'1px solid {COR_BORDA}'}))
 
     return dbc.Container([
         html.Div([
@@ -351,7 +361,7 @@ def layout_responder_fornecedor(token):
         dcc.Store(id='rodada-atual-fornecedor', data=rodada),
         dbc.Card([
             dbc.CardBody([
-                html.Div("Insira os preços para esta fase da negociação e clique em Enviar." if not ja_respondida else f"Os preços da {rodada}ª rodada já foram enviados e estão em análise.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
+                html.Div("Observe as marcas aceitas antes de inserir os preços para esta fase da negociação e clicar em Enviar." if not ja_respondida else f"Os preços da {rodada}ª rodada já foram enviados e estão em análise.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
                 cabecalho, html.Div(linhas),
                 html.Div([
                     dbc.Button([html.I(className="bi bi-check2-circle me-2"), "Enviar preços da Rodada"], id='Btn-enviar-precos', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700', 'marginTop': '18px'}, disabled=ja_respondida),
@@ -387,6 +397,7 @@ def layout_resultado_cotacao(cotacao_id):
             "rodada": f"{item['rodada']}ª Rodada",
             "grupo": item['grupo'] or "-",
             "item": item['item'],
+            "marca": item.get('marca', '-'),
             "volume": item['volume'] or "-",
             "qtd": qtd,
             "preco_unitario": f"R$ {preco:,.2f}" if preco is not None else "Aguardando",
@@ -433,7 +444,8 @@ def layout_resultado_cotacao(cotacao_id):
                         {"name": "Fase / Rodada", "id": "rodada"},
                         {"name": "Grupo", "id": "grupo"},
                         {"name": "Item / Produto", "id": "item"},
-                        {"name": "Volume", "id": "volume"},
+                        {"name": "Marca", "id": "marca"},
+                        {"name": "Unid", "id": "volume"},
                         {"name": "Qtd", "id": "qtd"},
                         {"name": "Preço Ofertado", "id": "preco_unitario"},
                         {"name": "Subtotal da Rodada", "id": "subtotal"},
@@ -616,19 +628,19 @@ def realizar_login(n_clicks, senha_digitada):
 # DEMAIS CALLBACKS
 # ============================================================
 @callback(
-    Output('produtos', 'options'), Output('produtos', 'value'), Output('input-volume', 'value'), Output('input-qtd', 'value'), Output('lista-store', 'data'), Output('tabela-lista', 'data'), Output('badge-total-itens', 'children'), Output('badge-total-qtd', 'children'),
+    Output('produtos', 'options'), Output('produtos', 'value'), Output('input-marca', 'value'), Output('input-volume', 'value'), Output('input-qtd', 'value'), Output('lista-store', 'data'), Output('tabela-lista', 'data'), Output('badge-total-itens', 'children'), Output('badge-total-qtd', 'children'),
     Input('grupo', 'value'), Input('Btn-salvar', 'n_clicks'), Input('Btn-remover', 'n_clicks'),
-    State('tab-pn', 'value'), State('grupo', 'value'), State('produtos', 'value'), State('input-volume', 'value'), State('input-qtd', 'value'), State('lista-store', 'data'), State('tabela-lista', 'selected_rows'),
+    State('tab-pn', 'value'), State('grupo', 'value'), State('produtos', 'value'), State('input-marca', 'value'), State('input-volume', 'value'), State('input-qtd', 'value'), State('lista-store', 'data'), State('tabela-lista', 'selected_rows'),
     prevent_initial_call=True
 )
-def gerenciar(grupo_selecionado, salvar, remover, fornecedor_sel, grupo_sel, produto_sel, volume, qtd, lista_atual, linhas_selecionadas):
+def gerenciar(grupo_selecionado, salvar, remover, fornecedor_sel, grupo_sel, produto_sel, marca, volume, qtd, lista_atual, linhas_selecionadas):
     def resumo(lista):
         total_itens = len(lista)
         total_qtd = sum(item['qtd'] for item in lista if isinstance(item['qtd'], (int, float)))
         return f"{total_itens} item(ns)", f"{total_qtd} un."
 
     ctx = callback_context
-    if not ctx.triggered: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    if not ctx.triggered: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
     botao_acionado = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if botao_acionado == 'grupo':
@@ -637,21 +649,21 @@ def gerenciar(grupo_selecionado, salvar, remover, fornecedor_sel, grupo_sel, pro
             produtos_filtrados = produtos[produtos['Nome do grupo'] == grupo_selecionado]['Descrição do item'].dropna().unique()
             options_produto = [{'label': i, 'value': i} for i in produtos_filtrados]
         itens_txt, qtd_txt = resumo(lista_atual)
-        return options_produto, None, no_update, no_update, lista_atual, lista_atual, itens_txt, qtd_txt
+        return options_produto, None, None, no_update, no_update, lista_atual, lista_atual, itens_txt, qtd_txt
 
     if botao_acionado == 'Btn-salvar':
-        if produto_sel is None: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
-        novo_item = {"fornecedor": fornecedor_sel if fornecedor_sel else "-", "grupo": grupo_sel if grupo_sel else "-", "item": produto_sel, "volume": volume if volume else "-", "qtd": qtd if qtd else 0}
+        if produto_sel is None: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        novo_item = {"fornecedor": fornecedor_sel if fornecedor_sel else "-", "grupo": grupo_sel if grupo_sel else "-", "item": produto_sel, "marca": marca if marca else "-", "volume": volume if volume else "-", "qtd": qtd if qtd else 0}
         lista_atual.append(novo_item)
         itens_txt, qtd_txt = resumo(lista_atual)
-        return no_update, None, None, None, lista_atual, lista_atual, itens_txt, qtd_txt
+        return no_update, None, None, None, None, lista_atual, lista_atual, itens_txt, qtd_txt
 
     if botao_acionado == 'Btn-remover':
-        if not linhas_selecionadas: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        if not linhas_selecionadas: return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
         lista_atual.pop(linhas_selecionadas[0])
         itens_txt, qtd_txt = resumo(lista_atual)
-        return no_update, no_update, no_update, no_update, lista_atual, lista_atual, itens_txt, qtd_txt
-    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, lista_atual, lista_atual, itens_txt, qtd_txt
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 @callback(
     Output('resultado-link', 'children'), Output('lista-store', 'data', allow_duplicate=True), Output('tabela-lista', 'data', allow_duplicate=True),
@@ -758,6 +770,7 @@ def gerar_excel_rodada(n_clicks, rodada_selecionada, pathname):
         dados_excel.append({
             "Fornecedor": fornecedor_nome,
             "Produto": item['item'],
+            "Marca Aceita": item.get('marca', '-'),
             "Unidade": item['volume'] or "-",
             "Quantidade": qtd,
             "Valor Total": valor_total
