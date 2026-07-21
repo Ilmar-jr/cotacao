@@ -156,7 +156,7 @@ def layout_cotacao_interna():
                                 campo("Produto", dcc.Dropdown(id='produtos', placeholder="Selecione o produto...", style={'color': '#000'}), 4),
                                 campo("Volume", dcc.Input(id='input-volume', type='text', placeholder="Ex: CX", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
                                 campo("Qtd", dcc.Input(id='input-qtd', type='number', placeholder="0", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
-                                dbc.Col(dbc.Button([html.I(className="bi bi-plus-circle me-2"), "Add"], id='Btn-salvar', n_clicks=0, style={'backgroundColor': COR_ACCENT_2, 'border': 'none', 'marginTop': '24px', 'width': '100%'}), 1)
+                              dbc.Col(dbc.Button([html.I(className="bi bi-plus-circle me-2"), "Add"], id='Btn-salvar', n_clicks=0, style={'backgroundColor': COR_ACCENT_2, 'border': 'none', 'marginTop': '24px', 'width': '100%'}), width=1)
                             ], className="g-2")
                         ])
                     ], className="card-cotacao mb-3"),
