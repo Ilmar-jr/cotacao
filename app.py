@@ -121,89 +121,111 @@ def layout_login():
 # ============================================================
 # LAYOUT 1: TELA INTERNA -- montar a cotação
 # ============================================================
+import plotly.express as px
+import plotly.graph_objects as go
+
 def layout_cotacao_interna():
+    # Busca dinamicamente os filtros existentes
+    fornecedores_opts = [{'label': 'Todos os Fornecedores', 'value': 'todos'}] + [{'label': f, 'value': f} for f in fn]
+    produtos_opts = [{'label': 'Todos os Produtos', 'value': 'todos'}] + [{'label': p, 'value': p} for p in todos_produtos]
+
     return dbc.Container([
         html.Div([
             html.Div([
-                html.I(className="bi bi-clipboard2-data me-2", style={'color': COR_ACCENT_2}),
-                html.Span("COTAÇÃO ONLINE", className="titulo-cotacao", style={'fontSize': '28px', 'fontWeight': '700', 'color': COR_TEXTO}),
+                html.I(className="bi bi-diagram-3-fill me-2", style={'color': COR_ACCENT_2}),
+                html.Span("SISTEMA DE COTAÇÃO ONLINE B2B", className="titulo-cotacao", style={'fontSize': '28px', 'fontWeight': '700', 'color': COR_TEXTO}),
             ]),
-            html.Div("Cadastro e comparação de itens para cotação de fornecedores", style={'color': COR_MUTED, 'fontSize': '14px', 'marginTop': '4px'}),
-        ], style={'padding': '18px 4px 8px 4px'}),
+            html.Div("Painel Operacional e Gestão Estratégica de Negociações", style={'color': COR_MUTED, 'fontSize': '14px', 'marginTop': '4px'}),
+        ], style={'padding': '18px 4px 18px 4px'}),
 
-        dbc.Card([
-            dbc.CardBody([
-                dbc.Row([
-                    campo("Fornecedor", dcc.Dropdown([{'label': i, 'value': i} for i in fn], id='tab-pn', placeholder="Escolha um fornecedor..", style={'color': '#000'}), 3),
-                    campo("Grupo", dcc.Dropdown([{'label': i, 'value': i} for i in grupo], id='grupo', placeholder="Escolha um grupo..", style={'color': '#000'}), 2),
-                    campo("Produto", dcc.Dropdown([{'label': i, 'value': i} for i in todos_produtos], id='produtos', placeholder="Escolha um produto..", style={'color': '#000'}), 3),
-                    campo("Unidade", dcc.Input(id='input-volume', type="text", placeholder="Unidade", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
-                    campo("Quantidade", dcc.Input(id='input-qtd', type="number", placeholder="Quantidade", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 2),
-                ], className="g-3"),
-                dbc.Row([
-                    dbc.Col([dbc.Button([html.I(className="bi bi-check2-circle me-2"), "Salvar item"], id='Btn-salvar', n_clicks=0, style={'backgroundColor': COR_ACCENT_2, 'border': 'none', 'fontWeight': '600', 'width': '80%'})], width=3),
-                    dbc.Col([dbc.Button([html.I(className="bi bi-trash3 me-2"), "Remover selecionado"], id='Btn-remover', n_clicks=0, style={'backgroundColor': 'transparent', 'border': f'1px solid {COR_PERIGO}', 'color': COR_PERIGO, 'fontWeight': '600', 'width': '80%'})], width=3),
-                ], className="mt-4 g-3"),
+        dbc.Tabs([
+            # ABA 1: OPERACIONAL
+            dbc.Tab(label="📋 Gerenciar & Criar Cotações", tab_id="tab-operacional", children=[
+                html.Div([
+                    # Conteúdo original do cadastro e montagem de cotações
+                    html.Div(id='resultado-link'),
+                    html.Div([dbc.Row([dbc.Col(html.Span("COTAÇÕES CRIADAS"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
+                    dbc.Card([
+                        dbc.CardBody([
+                            dbc.Row([
+                                campo("Buscar", dcc.Input(id='filtro-busca', type="text", placeholder="Nº da cotação ou fornecedor..", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 4),
+                                campo("Status", dcc.Dropdown(id='filtro-status', options=[{'label': 'Todas', 'value': 'todas'}, {'label': 'Aguardando fornecedor', 'value': 'aguardando'}, {'label': 'Respondida', 'value': 'respondida'}], value='todas', clearable=False, style={'color': '#000'}), 3),
+                                campo("Criada de", dcc.DatePickerSingle(id='filtro-data-inicio', display_format='DD/MM/YYYY', placeholder="Data inicial"), 2),
+                                campo("até", dcc.DatePickerSingle(id='filtro-data-fim', display_format='DD/MM/YYYY', placeholder="Data final"), 2),
+                            ], className="g-3 mb-3"),
+                            html.Div(id='lista-cotacoes-criadas'),
+                        ])
+                    ], className="card-cotacao"),
+                ], style={'paddingTop': '20px'})
+            ]),
+
+            # ABA 2: RELATÓRIOS E BI
+            dbc.Tab(label="📊 Relatório & Análise de Negociação", tab_id="tab-relatorio", children=[
+                html.Div([
+                    # Filtros Principais
+                    dbc.Card([
+                        dbc.CardBody([
+                            dbc.Row([
+                                campo("Data Inicial", dcc.DatePickerSingle(id='rel-data-inicio', display_format='DD/MM/YYYY', placeholder="Inicio"), 3),
+                                campo("Data Final", dcc.DatePickerSingle(id='rel-data-fim', display_format='DD/MM/YYYY', placeholder="Fim"), 3),
+                                campo("Fornecedor / Cliente", dcc.Dropdown(id='rel-fornecedor', options=fornecedores_opts, value='todos', clearable=False, style={'color': '#000'}), 3),
+                                campo("Produto", dcc.Dropdown(id='rel-produto', options=produtos_opts, value='todos', clearable=False, style={'color': '#000'}), 3),
+                            ], className="g-3")
+                        ])
+                    ], className="card-cotacao mb-4"),
+
+                    # Indicadores / KPIs de Desempenho
+                    dbc.Row([
+                        dbc.Col(dbc.Card([dbc.CardBody([
+                            html.Div("Total de Cotações Analisadas", style={'color': COR_MUTED, 'fontSize': '12px'}),
+                            html.H3(id="kpi-total-cotacoes", style={'color': COR_TEXTO, 'fontWeight': '700'})
+                        ])], className="card-cotacao"), width=3),
+                        
+                        dbc.Col(dbc.Card([dbc.CardBody([
+                            html.Div("Investimento Inicial (1ª Rodada)", style={'color': COR_MUTED, 'fontSize': '12px'}),
+                            html.H3(id="kpi-valor-inicial", style={'color': COR_TEXTO, 'fontWeight': '700'})
+                        ])], className="card-cotacao"), width=3),
+
+                        dbc.Col(dbc.Card([dbc.CardBody([
+                            html.Div("Investimento Final (Última Rodada)", style={'color': COR_MUTED, 'fontSize': '12px'}),
+                            html.H3(id="kpi-valor-final", style={'color': COR_TEXTO, 'fontWeight': '700'})
+                        ])], className="card-cotacao"), width=3),
+
+                        dbc.Col(dbc.Card([dbc.CardBody([
+                            html.Div("Resultado da Negociação", style={'color': COR_MUTED, 'fontSize': '12px'}),
+                            html.H3(id="kpi-resultado-financeiro", style={'fontWeight': '700'})
+                        ])], className="card-cotacao"), width=3),
+                    ], className="mb-4"),
+
+                    # Gráficos
+                    dbc.Row([
+                        # Evolução de Preço por Rodada (Gráfico de Linhas)
+                        dbc.Col(dbc.Card([
+                            dbc.CardBody([
+                                html.Div("Evolução do Valor Total por Rodada de Negociação", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
+                                dcc.Graph(id='grafico-evolucao-rodadas', config={'displayModeBar': False})
+                            ])
+                        ], className="card-cotacao"), width=7),
+
+                        # Desempenho por Fornecedor
+                        dbc.Col(dbc.Card([
+                            dbc.CardBody([
+                                html.Div("Economia Gerada por Fornecedor (R$)", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
+                                dcc.Graph(id='grafico-economia-fornecedor', config={'displayModeBar': False})
+                            ])
+                        ], className="card-cotacao"), width=5),
+                    ], className="mb-4"),
+
+                    # Tabela Detalhada das Rodadas
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.Div("Histórico Detalhado dos Itens Negociados", style={'color': COR_TEXTO, 'fontWeight': '600', 'marginBottom': '12px'}),
+                            html.Div(id='tabela-relatorio-detalhada')
+                        ])
+                    ], className="card-cotacao")
+                ], style={'paddingTop': '20px'})
             ])
-        ], className="card-cotacao", style={'padding': '10px'}),
-
-        dcc.Store(id='lista-store', data=[]),
-
-        html.Div([
-            dbc.Row([
-                dbc.Col(html.Span("ITENS DA COTAÇÃO"), width='auto'),
-                dbc.Col([
-                    dbc.Badge(id='badge-total-itens', children="0 itens", className="badge-resumo me-2"),
-                    dbc.Badge(id='badge-total-qtd', children="0 un.", className="badge-resumo"),
-                ], width='auto', className="ms-auto"),
-            ], justify='between', align='center')
-        ], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
-
-        dbc.Card([
-            dbc.CardBody([
-                dash_table.DataTable(
-                    id='tabela-lista',
-                    columns=[
-                        {"name": "Fornecedor", "id": "fornecedor"},
-                        {"name": "Grupo", "id": "grupo"},
-                        {"name": "Item", "id": "item"},
-                        {"name": "Volume", "id": "volume"},
-                        {"name": "Qtd", "id": "qtd"}
-                    ],
-                    data=[],
-                    row_selectable='single',
-                    page_size=20,
-                    style_header={'backgroundColor': COR_CARD_2, 'color': COR_MUTED, 'fontWeight': '600', 'textTransform': 'uppercase', 'fontSize': '12px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}'},
-                    style_cell={'backgroundColor': COR_CARD, 'color': COR_TEXTO, 'textAlign': 'left', 'padding': '10px', 'border': 'none', 'borderBottom': f'1px solid {COR_BORDA}', 'fontFamily': 'Inter, sans-serif'},
-                    style_data_conditional=[{'if': {'state': 'selected'}, 'backgroundColor': COR_CARD_2, 'border': f'1px solid {COR_ACCENT_2}'}],
-                    style_as_list_view=True,
-                )
-            ])
-        ], className="card-cotacao"),
-
-        html.Div([dbc.Row([dbc.Col(html.Span("ENVIAR PARA O FORNECEDOR"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
-
-        dbc.Card([
-            dbc.CardBody([
-                html.Div("Ao finalizar, a cotação é salva com um ID e um link exclusivo é gerado. Envie esse link ao fornecedor selecionado para que ele preencha o preço de cada item.", style={'color': COR_MUTED, 'fontSize': '13px', 'marginBottom': '14px'}),
-                dbc.Button([html.I(className="bi bi-send-check me-2"), "Finalizar cotação e gerar link"], id='Btn-finalizar', n_clicks=0, style={'backgroundColor': COR_ACCENT, 'border': 'none', 'color': '#12161c', 'fontWeight': '700'}),
-                html.Div(id='resultado-link', style={'marginTop': '16px'}),
-            ])
-        ], className="card-cotacao"),
-
-        html.Div([dbc.Row([dbc.Col(html.Span("COTAÇÕES CRIADAS"), width='auto')])], className="faixa-ticket", style={'marginTop': '28px', 'marginBottom': '14px'}),
-
-        dbc.Card([
-            dbc.CardBody([
-                dbc.Row([
-                    campo("Buscar", dcc.Input(id='filtro-busca', type="text", placeholder="Nº da cotação ou fornecedor..", style={'width': '100%', 'height': '38px', 'borderRadius': '6px'}), 4),
-                    campo("Status", dcc.Dropdown(id='filtro-status', options=[{'label': 'Todas', 'value': 'todas'}, {'label': 'Aguardando fornecedor', 'value': 'aguardando'}, {'label': 'Respondida', 'value': 'respondida'}], value='todas', clearable=False, style={'color': '#000'}), 3),
-                    campo("Criada de", dcc.DatePickerSingle(id='filtro-data-inicio', display_format='DD/MM/YYYY', placeholder="Data inicial"), 2),
-                    campo("até", dcc.DatePickerSingle(id='filtro-data-fim', display_format='DD/MM/YYYY', placeholder="Data final"), 2),
-                ], className="g-3 mb-3"),
-                html.Div(id='lista-cotacoes-criadas'),
-            ])
-        ], className="card-cotacao"),
+        ], id="tabs-painel", active_tab="tab-operacional")
     ], style={'paddingLeft': '80px', 'paddingRight': '80px', 'paddingBottom': '60px', 'minHeight': '100vh'}, fluid=True)
 
 def montar_tabela_cotacoes(busca=None, status=None, data_inicio=None, data_fim=None):
