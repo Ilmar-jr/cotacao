@@ -133,7 +133,7 @@ def layout_cotacao_interna():
         html.Div([
             html.Div([
                 html.I(className="bi bi-diagram-3-fill me-2", style={'color': COR_ACCENT_2}),
-                html.Span("SISTEMA DE COTAÇÃO ONLINE B2B", className="titulo-cotacao", style={'fontSize': '28px', 'fontWeight': '700', 'color': COR_TEXTO}),
+                html.Span("SISTEMA DE COTAÇÃO ONLINE", className="titulo-cotacao", style={'fontSize': '28px', 'fontWeight': '700', 'color': COR_TEXTO}),
             ]),
             html.Div("Painel Operacional e Gestão Estratégica de Negociações", style={'color': COR_MUTED, 'fontSize': '14px', 'marginTop': '4px'}),
         ], style={'padding': '18px 4px 18px 4px'}),
